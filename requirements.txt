@@ -3,4 +3,4 @@ pandas
 yfinance
 pytz
 requests
-plotly
+alpaca-py
