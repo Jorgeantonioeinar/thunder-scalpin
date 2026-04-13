@@ -61,30 +61,44 @@ def obtener_top_gainers():
 
 all_tickers = list(set(obtener_top_gainers() + manual_list))
 
-# ==================== ANÁLISIS ====================
-@st.cache_data(ttl=10)
+# ==================== ANÁLISIS (VERSIÓN CORREGIDA) ====================
+@st.cache_data(ttl=15)
 def analizar(ticker):
     try:
-        df = yf.download(ticker, period="3d", interval="5m", prepost=True, progress=False)
-        if df.empty: return None
-        precio = float(df['Close'].iloc[-1])
-        cambio = ((precio / float(df['Close'].iloc[-2])) - 1) * 100 if len(df)>1 else 0
+        # Descargamos datos de 1 día con intervalo de 1 minuto
+        df = yf.download(ticker, period="1d", interval="1m", progress=False)
+        
+        if df.empty or len(df) < 2:
+            return None
+        
+        # Forzamos que los nombres de las columnas sean minúsculas (open, high, low, close)
+        df.columns = [c.lower() for c in df.columns]
+        
+        # Extraemos el precio actual y el anterior
+        precio_actual = float(df['close'].iloc[-1])
+        precio_anterior = float(df['close'].iloc[-2])
+        
+        # Calculamos el cambio porcentual
+        cambio = ((precio_actual / precio_anterior) - 1) * 100
+        
+        # Calculamos el volumen del último minuto
+        vol_ultimo = int(df['volume'].iloc[-1])
 
-        score_buy = 0
-        if cambio >= 6: score_buy += 5
-        if cambio >= 12: score_buy += 4
-        if int(df['Volume'].iloc[-1]) > 800000: score_buy += 3
-
-        buy_rating = min(10, max(1, int(score_buy * 10 / 12)))
+        # Sistema de Rating simplificado para que veas datos rápido
+        # Si sube, le damos 7 puntos; si baja, 1 punto.
+        buy_rating = 7 if cambio > 0 else 1
+        sell_rating = 7 if cambio < -0.5 else 1
 
         return {
             "Ticker": ticker,
-            "Precio": round(precio, 3),
+            "Precio": round(precio_actual, 3),
             "Cambio%": round(cambio, 2),
             "Buy Rating": buy_rating,
-            "Vol": f"{int(df['Volume'].iloc[-1]):,}"
+            "Sell Rating": sell_rating,
+            "Vol": f"{vol_ultimo:,}"
         }
-    except:
+    except Exception as e:
+        # Si hay un error, lo ignoramos y pasamos al siguiente ticker
         return None
 
 # ==================== RESULTADOS ====================
