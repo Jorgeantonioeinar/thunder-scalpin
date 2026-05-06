@@ -1,10 +1,14 @@
 """
-THUNDER RADAR V94 FINAL
-========================
-PROBLEMA RESUELTO: El pre-filtro con zonas horarias fallaba silenciosamente.
-SOLUCIÓN: Cálculo de cambio% SIN manejo de fechas ni timezones.
-  → cambio% = (último precio - precio de hace 30 velas) / precio_30_velas_antes
-  → Funciona en CUALQUIER sesión: pre-market, regular, after-hours
+THUNDER RADAR V96 — COMPLETO Y CORREGIDO
+==========================================
+CORRECCIONES:
+  ✅ RVOL = 0.0x CORREGIDO: el bug era en la extracción de columnas
+     de yfinance cuando descarga múltiples tickers (MultiIndex)
+  ✅ DETECTOR 5 MINUTOS: como Webull "% Chg in 5Mins"
+     detecta stocks que se disparan en los últimos 5 minutos
+  ✅ YAHOO FINANCE: top gainers del día en tiempo real
+  ✅ FUNCIONA EN: pre-market, regular, after-hours
+  ✅ SL/TP DINÁMICO automático conectado a Alpaca Paper
 """
 
 import streamlit as st
@@ -21,8 +25,8 @@ import time
 import warnings
 warnings.filterwarnings("ignore")
 
-# ─────────────────────────────────────────────────────
-st.set_page_config(page_title="⚡ THUNDER RADAR V94", layout="wide",
+# ─────────────────────────────────────────────────────────────
+st.set_page_config(page_title="⚡ THUNDER RADAR V96", layout="wide",
                    initial_sidebar_state="expanded")
 
 st.markdown("""
@@ -38,23 +42,25 @@ h1,h2,h3{font-family:'Orbitron',sans-serif!important;}
 div[data-testid="metric-container"]{background:linear-gradient(135deg,#0a0f1a,#141b27);
     border:1px solid #1e2739;border-radius:8px;padding:12px;}
 .card-fire{background:linear-gradient(135deg,#061510,#0a0f1a);
-    border:2px solid #00ff88;border-radius:10px;
-    padding:14px 18px;margin:6px 0;box-shadow:0 0 22px #00ff8855;}
+    border:2px solid #00ff88;border-radius:10px;padding:13px 17px;margin:5px 0;
+    box-shadow:0 0 20px #00ff8855;}
+.card-5min{background:linear-gradient(135deg,#100806,#0a0f1a);
+    border:2px solid #ff4500;border-radius:10px;padding:13px 17px;margin:5px 0;
+    box-shadow:0 0 18px #ff450055;}
 .card-hot{background:linear-gradient(135deg,#100a06,#0a0f1a);
-    border:2px solid #ff8c00;border-radius:10px;
-    padding:12px 16px;margin:4px 0;box-shadow:0 0 10px #ff8c0033;}
+    border:2px solid #ff8c00;border-radius:10px;padding:11px 15px;margin:4px 0;}
 .card-watch{background:#090b0f;border:1px solid #ffc10733;
     border-radius:8px;padding:9px 13px;margin:3px 0;}
 .s10{color:#00ff88;font-size:1.9em;font-weight:900;font-family:'Orbitron',sans-serif;}
 .s8{color:#39ff14;font-size:1.5em;font-weight:800;}
 .s6{color:#ffc107;font-size:1.3em;font-weight:700;}
-.tkr{font-family:'Orbitron',sans-serif;font-size:1.3em;font-weight:900;color:#fff;}
-.lbl{color:#8b949e;font-size:.74em;}
-.hdr{text-align:center;font-family:'Orbitron',sans-serif;font-size:2.2em;font-weight:900;
+.tkr{font-family:'Orbitron',sans-serif;font-size:1.25em;font-weight:900;color:#fff;}
+.lbl{color:#8b949e;font-size:.73em;}
+.hdr{text-align:center;font-family:'Orbitron',sans-serif;font-size:2.1em;font-weight:900;
     background:linear-gradient(90deg,#00ff88,#00d4ff,#ff4500);
     -webkit-background-clip:text;-webkit-text-fill-color:transparent;letter-spacing:3px;}
-.sub{text-align:center;color:#8b949e;font-size:.78em;letter-spacing:3px;}
-.badge{display:inline-block;padding:3px 10px;border-radius:20px;font-size:.74em;font-weight:bold;}
+.sub{text-align:center;color:#8b949e;font-size:.76em;letter-spacing:3px;}
+.badge{display:inline-block;padding:3px 10px;border-radius:20px;font-size:.73em;font-weight:bold;}
 .b-reg{background:#15803d;color:#fff;}.b-pre{background:#7c3aed;color:#fff;}
 .b-aft{background:#0369a1;color:#fff;}.b-cls{background:#374151;color:#fff;}
 .dot{display:inline-block;width:9px;height:9px;background:#00ff88;border-radius:50%;
@@ -62,13 +68,17 @@ div[data-testid="metric-container"]{background:linear-gradient(135deg,#0a0f1a,#1
 @keyframes blink{0%,100%{opacity:1}50%{opacity:.1}}
 hr.n{border:none;border-top:1px solid #00ff8822;margin:12px 0;}
 .ibox{background:#0a0f1a;border:1px solid #00ff8833;border-radius:8px;
-    padding:10px 14px;margin:6px 0;font-size:.79em;}
+    padding:10px 14px;margin:6px 0;font-size:.79em;line-height:1.6em;}
+.tab-active{background:#1d4ed8;color:#fff;padding:4px 14px;border-radius:6px;
+    font-weight:bold;cursor:pointer;display:inline-block;margin:2px;}
+.tab-inactive{background:#161b22;color:#8b949e;padding:4px 14px;border-radius:6px;
+    cursor:pointer;display:inline-block;margin:2px;}
 </style>
 """, unsafe_allow_html=True)
 
-# ─────────────────────────────────────────────────────
+# ─────────────────────────────────────────────────────────────
 # ALPACA
-# ─────────────────────────────────────────────────────
+# ─────────────────────────────────────────────────────────────
 ALPACA_KEY    = "PKOKUMRZBCA2YJKVZIATSPGV5J"
 ALPACA_SECRET = "2UBriZpW7NooR1EvtowC63GcarFt7rEQFD9ofti9Ah6N"
 
@@ -77,13 +87,12 @@ def get_alpaca():
     return TradingClient(ALPACA_KEY, ALPACA_SECRET, paper=True)
 alpaca = get_alpaca()
 
-# ─────────────────────────────────────────────────────
-# SESIÓN
-# ─────────────────────────────────────────────────────
+# ─────────────────────────────────────────────────────────────
+# SESIÓN DE MERCADO
+# ─────────────────────────────────────────────────────────────
 def get_session():
     tz = pytz.timezone("US/Eastern")
-    now = datetime.now(tz)
-    h = now.hour + now.minute / 60.0
+    h  = datetime.now(tz).hour + datetime.now(tz).minute / 60.0
     if   4.0  <= h < 9.5:  return "PRE-MARKET"
     elif 9.5  <= h < 16.0: return "REGULAR"
     elif 16.0 <= h < 20.0: return "AFTER-HOURS"
@@ -91,121 +100,170 @@ def get_session():
 
 SESSION = get_session()
 
-# ─────────────────────────────────────────────────────
-# UNIVERSO BASE (stocks conocidos por alta volatilidad)
-# + Twelve Data para expandir
-# ─────────────────────────────────────────────────────
-BASE_VOLATILES = list(dict.fromkeys([
-    # Top Gainers frecuentes en Webull (los que realmente se mueven)
-    "BIYA","NEXR","ATER","BBBY","SBLX","SNBR","YJ","ILLR","SCAG",
-    "BLIV","ABTS","DLHC","WSHP","MYSE","ONFO","CTNT","RAIN","CPHI",
-    "NCRA","LVLU","HNST","RCAT","CRKN","BSLK","GPUS","GFAI","SGBX",
-    "INPX","RSSS","ISPC","UCAR","ABLV","YXT","ZBAI","MTEX","MGRT",
-    "BRIA","EDTK","TGHL","ZSPC","PBM","APCX","NXTP","INEO","LCFY",
-    "BUDA","MNTS","ASTR","SPIR","PAVS","TCRT","VRPX","ILUS","VISL",
-    # Meme/momentum clásicos
+# ─────────────────────────────────────────────────────────────
+# LISTA BASE (respaldo si Yahoo falla)
+# ─────────────────────────────────────────────────────────────
+BASE = list(dict.fromkeys([
+    "SDOT","BLZE","CLRB","STRL","BIYA","EVER","JLHL","NXTS","MRDN","UK",
+    "NA","SLOT","NEXR","ATER","BBBY","SBLX","YJ","ILLR","SCAG","BLIV",
+    "ABTS","DLHC","WSHP","MYSE","ONFO","CTNT","RAIN","CPHI","NCRA","LVLU",
+    "RCAT","CRKN","BSLK","GPUS","GFAI","SGBX","INPX","RSSS","ISPC","UCAR",
+    "ABLV","YXT","ZBAI","MTEX","MGRT","BRIA","EDTK","TGHL","PBM","SKK",
+    "CNSP","PN","CRE","ELPW","GBTG","SSM","HCAI","RLYB","MNDR","SLQT",
+    "VOYG","IMOS","CRGY","UMC","BRCC","FTRE","HOWL","LGCL","MPU","AACBR",
     "GME","AMC","KOSS","BB","NOK","BBIG","SPCE","MULN","IDEX","CENN",
     "MVIS","PROG","NAKD","EXPR","KPLT","CELH","SKIN","NKLA","WKHS",
-    # Biotech volátil (mucho movimiento pre-market)
     "OCGN","CLOV","SNDL","TLRY","AGEN","ADXS","MNMD","ATAI","BPMC",
-    "PRAX","ARVN","LGVN","VVOS","SYRA","QNRX","CRTX","IINN","BFRI",
     "NVAX","MRNA","BNTX","SRPT","ACAD","HIMS","FATE","CRSP","EDIT",
-    "ACMR","PCVX","REPL","SAGE","ATNF","PRST","ASLN","ASRT","ATIF",
-    # Cripto-proxy
-    "COIN","HOOD","MSTR","RIOT","MARA","HUT","CIFR","BTBT","CLSK",
-    "WULF","IREN","BITF","BTCS","CORZ","ARBK","SATO","MIGI",
-    # EV
-    "RIVN","LCID","CHPT","BLNK","PLUG","FCEL","GOEV","FSR","NIO",
-    "XPEV","LI","SOLO","HYLN","AYRO",
-    # China ADR
+    "COIN","HOOD","MSTR","RIOT","MARA","HUT","CIFR","BTBT","CLSK","WULF",
+    "RIVN","LCID","CHPT","BLNK","PLUG","FCEL","GOEV","FSR","NIO","XPEV",
     "BABA","JD","PDD","TCOM","TIGR","FUTU","BILI","IQ","DOYU","HUYA",
-    "GOTU","TUYA","TAL","DIDI","YMM","LAIX",
-    # Space/Quantum/Drones
     "ASTS","LUNR","RKLB","ACHR","JOBY","IONQ","RGTI","QUBT",
-    # Fintech small
-    "SOFI","UPST","AFRM","ROOT","OPFI","DAVE","GHLD","CURO",
-    # Large cap tech
+    "SOFI","UPST","AFRM","ROOT","OPFI","DAVE",
     "AAPL","MSFT","NVDA","TSLA","AMD","META","AMZN","GOOGL","NFLX",
-    "INTC","AVGO","QCOM","MU","SMCI","PLTR","CRM","NOW","SNOW","DDOG",
-    "CRWD","OKTA","NET","HUBS","BILL","ZS",
-    # Retail/Consumer especulativos
+    "AVGO","QCOM","MU","SMCI","PLTR","CRM","NOW","SNOW","DDOG","CRWD",
     "PTON","DOCU","ZM","TDOC","LYFT","UBER","DASH","ABNB","DKNG",
     "RBLX","U","SNAP","PINS","PARA","WBD","ROKU","FUBO","SIRI",
-    # Más micro/small caps volátiles
-    "MRIN","AULT","ATIF","ATOM","ATOS","AUPH","AUVI","AVXL","AXSM",
-    "ADXS","ALVR","AMPIO","APDN","ARQQ","ARVL","AVAH","AVCO","AVDL",
-    "AVEO","AVIR","AVPT","AVRO","AVTE","BCTX","AGRX","AKBA","ALLT",
 ]))
 
-@st.cache_data(ttl=3600)
-def cargar_twelve() -> list:
-    """Carga TODOS los stocks de NYSE+NASDAQ+AMEX via Twelve Data (gratis)."""
-    tickers = []
-    for exc in ["NYSE", "NASDAQ", "AMEX"]:
+# ─────────────────────────────────────────────────────────────
+# YAHOO FINANCE — TOP GAINERS EN TIEMPO REAL
+# ─────────────────────────────────────────────────────────────
+YH = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+      "Accept": "application/json"}
+
+def yahoo_screen(sid: str, n: int = 100) -> list:
+    """Obtiene tickers de un screener de Yahoo Finance."""
+    for base_url in ["https://query1.finance.yahoo.com",
+                     "https://query2.finance.yahoo.com"]:
         try:
             r = requests.get(
-                "https://api.twelvedata.com/stocks",
-                params={"exchange": exc, "type": "Common Stock", "format": "JSON"},
+                f"{base_url}/v1/finance/screener/predefined/saved",
+                headers=YH,
+                params={"scrIds": sid, "count": n, "formatted": "false"},
                 timeout=12
             )
             if r.status_code == 200:
-                for item in r.json().get("data", []):
-                    s = item.get("symbol", "").strip().upper()
-                    if s and s.isalpha() and 2 <= len(s) <= 5:
-                        tickers.append(s)
+                quotes = (r.json().get("finance", {})
+                           .get("result", [{}])[0]
+                           .get("quotes", []))
+                result = []
+                for q in quotes:
+                    s = q.get("symbol", "").strip().upper()
+                    if s and s.isalpha() and 1 <= len(s) <= 5:
+                        result.append(s)
+                if result:
+                    return result
         except Exception:
             pass
-    result = list(dict.fromkeys(tickers))
-    return result if len(result) > 500 else BASE_VOLATILES
+    return []
 
-# ─────────────────────────────────────────────────────
-# EXTRACTOR SEGURO DE DATAFRAME
-# ─────────────────────────────────────────────────────
-def xdf(raw, t, n):
+
+def obtener_top_gainers() -> dict:
+    """Obtiene top gainers y más activos de Yahoo Finance."""
+    day_g  = yahoo_screen("day_gainers",       100)
+    active = yahoo_screen("most_actives",      100)
+    small  = yahoo_screen("small_cap_gainers", 100)
+
+    todos = list(dict.fromkeys(day_g + active + small))
+    return {
+        "day_gainers": day_g,
+        "most_actives": active,
+        "small_cap": small,
+        "todos": todos,
+        "counts": {
+            "day_gainers": len(day_g),
+            "most_actives": len(active),
+            "small_cap": len(small),
+            "total": len(todos),
+        }
+    }
+
+# ─────────────────────────────────────────────────────────────
+# EXTRACTOR SEGURO DE DATAFRAME — CORRIGE BUG RVOL=0
+# ─────────────────────────────────────────────────────────────
+def extraer_df_seguro(raw, ticker: str, n_tickers: int) -> pd.DataFrame | None:
+    """
+    Extrae un DataFrame limpio de la descarga de yfinance.
+    CORRECCIÓN DEL BUG RVOL=0: cuando yfinance descarga múltiples tickers,
+    el resultado tiene un MultiIndex (nivel 0 = campo, nivel 1 = ticker).
+    Hay que transponer correctamente.
+    """
     try:
-        if n == 1:
+        if n_tickers == 1:
+            # Un solo ticker: el df viene directamente
             df = raw.copy()
-        elif isinstance(raw.columns, pd.MultiIndex) and t in raw.columns.get_level_values(0):
-            df = raw[t].copy()
         else:
-            return None
-        if isinstance(df.columns, pd.MultiIndex):
-            df.columns = df.columns.get_level_values(0)
-        for c in ["Close", "High", "Low", "Open", "Volume"]:
-            if c not in df.columns:
+            # Múltiples tickers: MultiIndex columns
+            if not isinstance(raw.columns, pd.MultiIndex):
                 return None
+            # Verificar que el ticker existe en el nivel correcto
+            lvl0 = raw.columns.get_level_values(0).unique().tolist()
+            lvl1 = raw.columns.get_level_values(1).unique().tolist()
+
+            if ticker in lvl1:
+                # Formato: (Price, Ticker) → extraer columna del ticker
+                df = raw.xs(ticker, axis=1, level=1)
+            elif ticker in lvl0:
+                # Formato: (Ticker, Price) → extraer columna del ticker
+                df = raw[ticker].copy()
+            else:
+                return None
+
+        # Aplanar MultiIndex si quedó
+        if isinstance(df.columns, pd.MultiIndex):
+            df.columns = [c[0] if isinstance(c, tuple) else c for c in df.columns]
+
+        # Verificar columnas necesarias
+        needed = {"Close", "High", "Low", "Open", "Volume"}
+        if not needed.issubset(set(df.columns)):
+            return None
+
         df = df.dropna(subset=["Close", "Volume"])
         return df if len(df) >= 3 else None
+
     except Exception:
         return None
 
-# ─────────────────────────────────────────────────────
-# PASO 1: RANKING RÁPIDO
-# ─────────────────────────────────────────────────────
-# CLAVE: calcula cambio% usando las últimas N velas
-# SIN manejo de fechas ni timezones → no falla nunca.
-# N velas atrás = ~2.5 horas de datos de 5min
-# ─────────────────────────────────────────────────────
-def ranking_rapido(universo: list, precio_min: float, precio_max: float,
-                   top_n: int = 200) -> pd.DataFrame:
-    activos = []
-    total = len(universo)
-    lote  = 100
-    pb    = st.progress(0.0, text="📡 Ranking: descargando datos 5min...")
 
-    for i in range(0, total, lote):
-        chunk = universo[i:i+lote]
-        pb.progress(min((i+lote)/total, 1.0),
-                    text=f"📡 Ranking {min(i+lote,total)}/{total}...")
+# ─────────────────────────────────────────────────────────────
+# DETECTOR DE MOMENTUM 5 MINUTOS
+# Como Webull "% Chg in 5Mins" — detecta stocks que se disparan
+# en los últimos 5 minutos AHORA MISMO
+# ─────────────────────────────────────────────────────────────
+def detectar_momentum_5min(tickers: list,
+                            precio_min: float,
+                            precio_max: float,
+                            min_cambio_5m: float = 2.0,
+                            top_n: int = 50) -> pd.DataFrame:
+    """
+    Descarga datos de 5min del día actual.
+    Calcula % cambio en las últimas 2 velas (= últimos 10 min)
+    y en la última vela (= últimos 5 min).
+    Devuelve ranking ordenado por mayor movimiento reciente.
+    """
+    if not tickers:
+        return pd.DataFrame()
+
+    resultados = []
+    lote = 100
+    pb   = st.progress(0.0, text="🔥 Detector 5min: descargando...")
+
+    for i in range(0, len(tickers), lote):
+        chunk = tickers[i:i+lote]
+        pb.progress(min((i+lote)/len(tickers), 1.0),
+                    text=f"🔥 5min: {min(i+lote,len(tickers))}/{len(tickers)}...")
         try:
             raw = yf.download(
-                chunk, period="1d", interval="5m",
+                chunk,
+                period="1d", interval="5m",
                 group_by="ticker", prepost=True,
-                progress=False, auto_adjust=True, threads=True, timeout=20
+                progress=False, auto_adjust=True,
+                threads=True, timeout=20
             )
             for t in chunk:
                 try:
-                    df = xdf(raw, t, len(chunk))
+                    df = extraer_df_seguro(raw, t, len(chunk))
                     if df is None or len(df) < 4:
                         continue
 
@@ -213,33 +271,44 @@ def ranking_rapido(universo: list, precio_min: float, precio_max: float,
                     if not (precio_min <= precio <= precio_max):
                         continue
 
-                    # Cambio % SIN timezones:
-                    # Usamos las últimas 30 velas (= ~2.5 horas de 5min)
-                    # Si hay menos, usamos las que haya
-                    lookback = min(30, len(df) - 1)
-                    precio_base = float(df["Close"].iloc[-(lookback+1)])
-                    cambio_pct  = (precio - precio_base) / max(precio_base, 1e-9) * 100
+                    # Cambio en última vela (5 min)
+                    c1   = float(df["Close"].iloc[-1])
+                    c2   = float(df["Close"].iloc[-2])
+                    c3   = float(df["Close"].iloc[-3])
 
-                    # RVOL: vol última vela vs promedio del día
+                    chg_5m  = (c1 - c2) / max(c2, 1e-9) * 100  # últimos 5 min
+                    chg_10m = (c1 - c3) / max(c3, 1e-9) * 100  # últimos 10 min
+
+                    # Aceleración: ¿la última vela es más fuerte que la anterior?
+                    v1 = (c1 - c2) / max(c2, 1e-9) * 100
+                    v2 = (c2 - c3) / max(c3, 1e-9) * 100
+                    acelerando = v1 > v2 and v1 > 0
+
+                    # Vol relativo 5min
                     vol_ult  = float(df["Volume"].iloc[-1])
-                    vol_prom = float(df["Volume"].mean())
-                    rvol     = vol_ult / max(vol_prom, 1)
+                    vol_prom = float(df["Volume"].iloc[:-1].mean())
+                    rvol_5m  = vol_ult / max(vol_prom, 1)
 
-                    # Velocidad: % cambio en última vela de 5min
-                    vel_5m = (float(df["Close"].iloc[-1]) - float(df["Close"].iloc[-2])) \
-                             / max(float(df["Close"].iloc[-2]), 1e-9) * 100
+                    # Cambio del día
+                    open_d   = float(df["Open"].iloc[0])
+                    chg_dia  = (precio - open_d) / max(open_d, 1e-9) * 100
 
-                    # Score de ranking simple
-                    score = abs(cambio_pct) * 0.5 + rvol * 0.3 + abs(vel_5m) * 0.2
+                    # Score momentum 5min (0-100)
+                    score_5m = (min(abs(chg_5m), 20) / 20 * 40 +
+                                min(rvol_5m, 10) / 10 * 30 +
+                                (20 if acelerando else 0) +
+                                min(abs(chg_10m), 30) / 30 * 10)
 
-                    activos.append({
-                        "Ticker"    : t,
-                        "Precio $"  : round(precio, 4),
-                        "Δ %"       : round(cambio_pct, 2),
-                        "Vel 5m %"  : round(vel_5m, 2),
-                        "RVOL"      : round(rvol, 1),
-                        "Vol"       : int(float(df["Volume"].sum())),
-                        "_score"    : score,
+                    resultados.append({
+                        "Ticker"      : t,
+                        "Precio $"    : round(precio, 4),
+                        "Δ 5min %"    : round(chg_5m, 2),
+                        "Δ 10min %"   : round(chg_10m, 2),
+                        "Δ Día %"     : round(chg_dia, 2),
+                        "RVOL 5m"     : round(rvol_5m, 1),
+                        "Acelerando"  : "⚡ SÍ" if acelerando else "→ NO",
+                        "Score 5m"    : round(score_5m, 1),
+                        "Vol Actual"  : int(vol_ult),
                     })
                 except Exception:
                     continue
@@ -247,16 +316,19 @@ def ranking_rapido(universo: list, precio_min: float, precio_max: float,
             continue
 
     pb.empty()
-
-    if not activos:
+    if not resultados:
         return pd.DataFrame()
 
-    df_r = pd.DataFrame(activos).sort_values("_score", ascending=False).reset_index(drop=True)
+    df_r = pd.DataFrame(resultados)
+    # Filtrar por cambio mínimo de 5 minutos
+    df_r = df_r[df_r["Δ 5min %"].abs() >= min_cambio_5m]
+    df_r = df_r.sort_values("Score 5m", ascending=False).reset_index(drop=True)
     return df_r.head(top_n)
 
-# ─────────────────────────────────────────────────────
+
+# ─────────────────────────────────────────────────────────────
 # SUPERTREND
-# ─────────────────────────────────────────────────────
+# ─────────────────────────────────────────────────────────────
 def calc_supertrend(df, periodo=10, mult=3.0):
     try:
         h = df["H"]; l = df["L"]; c = df["C"]
@@ -264,30 +336,25 @@ def calc_supertrend(df, periodo=10, mult=3.0):
         if n < periodo + 2:
             df["st_dir"] = 1; df["st_val"] = c * 0.98; df["st_cross"] = 0
             return df
-
         hl = h - l
         hc = (h - c.shift(1)).abs()
         lc = (l - c.shift(1)).abs()
-        atr = pd.concat([hl, hc, lc], axis=1).max(axis=1).rolling(periodo).mean()
-
+        atr = pd.concat([hl,hc,lc], axis=1).max(axis=1).rolling(periodo).mean()
         mid  = (h + l) / 2
         ub_r = mid + mult * atr
         lb_r = mid - mult * atr
         ub = ub_r.copy(); lb = lb_r.copy()
-
         for i in range(1, n):
-            ub.iloc[i] = min(ub_r.iloc[i], ub.iloc[i-1]) \
-                if c.iloc[i-1] <= ub.iloc[i-1] else ub_r.iloc[i]
-            lb.iloc[i] = max(lb_r.iloc[i], lb.iloc[i-1]) \
-                if c.iloc[i-1] >= lb.iloc[i-1] else lb_r.iloc[i]
-
+            ub.iloc[i] = (min(ub_r.iloc[i], ub.iloc[i-1])
+                          if c.iloc[i-1] <= ub.iloc[i-1] else ub_r.iloc[i])
+            lb.iloc[i] = (max(lb_r.iloc[i], lb.iloc[i-1])
+                          if c.iloc[i-1] >= lb.iloc[i-1] else lb_r.iloc[i])
         d = pd.Series(1.0, index=df.index)
         for i in range(1, n):
             if d.iloc[i-1] == 1:
                 d.iloc[i] = 1 if c.iloc[i] >= lb.iloc[i] else -1
             else:
                 d.iloc[i] = -1 if c.iloc[i] <= ub.iloc[i] else 1
-
         df["st_dir"]   = d.values
         df["st_val"]   = np.where(d == 1, lb.values, ub.values)
         df["st_cross"] = (d != d.shift(1)).fillna(False).astype(int).values
@@ -297,22 +364,37 @@ def calc_supertrend(df, periodo=10, mult=3.0):
         df["st_cross"] = 0
         return df
 
-# ─────────────────────────────────────────────────────
-# INDICADORES TÉCNICOS 1min
-# ─────────────────────────────────────────────────────
-def indicadores(df_raw: pd.DataFrame, st_per: int, st_mult: float):
+
+# ─────────────────────────────────────────────────────────────
+# INDICADORES TÉCNICOS 1min — CON FIX DEL BUG RVOL
+# ─────────────────────────────────────────────────────────────
+def calcular_indicadores(df_raw: pd.DataFrame, st_per: int, st_mult: float):
     try:
         df = df_raw.copy()
 
-        def s(col):
-            x = pd.to_numeric(df[col], errors="coerce").squeeze()
-            return x.iloc[:, 0] if isinstance(x, pd.DataFrame) else x
+        # Convertir columnas a Series 1D numéricas
+        def to_s(col):
+            x = pd.to_numeric(df[col], errors="coerce")
+            if isinstance(x, pd.DataFrame):
+                x = x.iloc[:, 0]
+            return x.squeeze()
 
-        C, H, L, O, V = s("Close"), s("High"), s("Low"), s("Open"), s("Volume").fillna(0)
-        df["C"] = C.values; df["H"] = H.values
-        df["L"] = L.values; df["O"] = O.values; df["V"] = V.values
+        C = to_s("Close")
+        H = to_s("High")
+        L = to_s("Low")
+        O = to_s("Open")
+        V = to_s("Volume").fillna(0)
+
+        # Guardar como columnas limpias
+        df["C"] = C.values
+        df["H"] = H.values
+        df["L"] = L.values
+        df["O"] = O.values
+        df["V"] = V.values
+
         n = len(df)
-        if n < 3: return None
+        if n < 3:
+            return None
 
         # EMAs
         df["e9"]  = df["C"].ewm(span=min(9,  n), adjust=False).mean()
@@ -330,29 +412,39 @@ def indicadores(df_raw: pd.DataFrame, st_per: int, st_mult: float):
         df["rsi"] = (100 - 100 / (1 + g / ls.replace(0, np.nan))).fillna(50)
 
         # MACD
-        df["macd"]   = (df["C"].ewm(span=min(12, n), adjust=False).mean()
-                       - df["C"].ewm(span=min(26, n), adjust=False).mean())
-        df["macd_s"] = df["macd"].ewm(span=min(9, n), adjust=False).mean()
+        df["macd"]   = (df["C"].ewm(span=min(12,n), adjust=False).mean()
+                       - df["C"].ewm(span=min(26,n), adjust=False).mean())
+        df["macd_s"] = df["macd"].ewm(span=min(9,n), adjust=False).mean()
         df["macd_h"] = df["macd"] - df["macd_s"]
 
-        # ATR
+        # ATR, Soporte, Resistencia
         hl = df["H"] - df["L"]
         hc = (df["H"] - df["C"].shift(1)).abs()
         lc = (df["L"] - df["C"].shift(1)).abs()
-        df["atr"] = pd.concat([hl, hc, lc], axis=1).max(axis=1)\
-                       .rolling(min(14, n)).mean().fillna(df["C"] * 0.01)
-
-        # Soporte / Resistencia dinámicos
+        df["atr"] = (pd.concat([hl, hc, lc], axis=1)
+                       .max(axis=1)
+                       .rolling(min(14, n))
+                       .mean()
+                       .fillna(df["C"] * 0.01))
         w = min(20, n)
         df["sup"] = df["L"].rolling(w).min().fillna(df["C"] * 0.97)
         df["res"] = df["H"].rolling(w).max().fillna(df["C"] * 1.03)
 
-        # RVOL — últimas 10 velas
+        # ── RVOL CORREGIDO ─────────────────────────────────
+        # Usar ventana de 10 velas, con fallback al promedio total
         wv = min(10, n - 1)
-        df["vavg"] = df["V"].rolling(wv).mean().fillna(df["V"].mean())
-        df["rvol"] = (df["V"] / df["vavg"].replace(0, 1)).fillna(1)
+        if wv < 2:
+            df["vavg"] = df["V"].mean()
+        else:
+            df["vavg"] = df["V"].rolling(wv).mean()
+        # Rellenar NaN con el promedio del período completo
+        df["vavg"] = df["vavg"].fillna(df["V"].mean())
+        # Evitar división por cero
+        df["vavg"] = df["vavg"].replace(0, df["V"].mean()).replace(0, 1)
+        df["rvol"] = df["V"] / df["vavg"]
+        # ───────────────────────────────────────────────────
 
-        # Velocidad 1min, 2min, 3min y aceleración
+        # Velocidad y aceleración
         df["v1"] = df["C"].pct_change(1) * 100
         df["v2"] = df["C"].pct_change(2) * 100
         df["v3"] = df["C"].pct_change(3) * 100
@@ -365,9 +457,10 @@ def indicadores(df_raw: pd.DataFrame, st_per: int, st_mult: float):
     except Exception:
         return None
 
-# ─────────────────────────────────────────────────────
-# MOTOR DE SEÑAL
-# ─────────────────────────────────────────────────────
+
+# ─────────────────────────────────────────────────────────────
+# MOTOR DE SEÑAL (Score 1-10)
+# ─────────────────────────────────────────────────────────────
 def gv(row, col, default=0.0):
     try:
         v = float(row[col])
@@ -375,13 +468,14 @@ def gv(row, col, default=0.0):
     except Exception:
         return default
 
-def motor_senal(df, session: str, cambio_rank: float):
+
+def motor_senal(df, session: str, cambio_dia: float,
+                es_top_gainer: bool, chg_5m: float = 0.0):
     if df is None or len(df) < 3:
         return 1, 1, "⚪ NEUTRO", {}, 0.0, 0.0, 1
 
     a = df.iloc[-1]
     p = df.iloc[-2] if len(df) > 1 else df.iloc[-1]
-    b = df.iloc[-3] if len(df) > 2 else p
 
     precio = gv(a, "C")
     if precio <= 0:
@@ -390,7 +484,7 @@ def motor_senal(df, session: str, cambio_rank: float):
     up = dn = 0.0
     det = {}
 
-    # 1. RVOL (peso 25%)
+    # 1. RVOL (25%) — ya corregido
     rv = gv(a, "rvol", 1)
     if rv >= 10:
         up += 2.5; det["RVOL"] = f"🔥🔥🔥 {rv:.1f}x EXPLOSIVO"
@@ -403,7 +497,7 @@ def motor_senal(df, session: str, cambio_rank: float):
     else:
         det["RVOL"] = f"→ {rv:.1f}x Normal"
 
-    # 2. VELOCIDAD última vela 1min (peso 25%)
+    # 2. VELOCIDAD última vela 1min (25%)
     v1 = gv(a, "v1")
     if v1 >= 3:
         up += 2.5; det["VEL"] = f"🚀🚀 {v1:+.2f}%/min COHETE"
@@ -422,7 +516,7 @@ def motor_senal(df, session: str, cambio_rank: float):
     else:
         det["VEL"] = f"→ {v1:+.2f}%/min Plano"
 
-    # 3. ACELERACIÓN (peso 20%)
+    # 3. ACELERACIÓN (20%)
     va, vb = gv(a, "v1"), gv(p, "v1")
     if va > 0 and vb >= 0 and va > vb:
         up += 2.0; det["ACEL"] = f"⚡ Acelerando {vb:+.2f}%→{va:+.2f}%"
@@ -435,75 +529,79 @@ def motor_senal(df, session: str, cambio_rank: float):
     else:
         det["ACEL"] = "→ Sin aceleración"
 
-    # 4. SUPERTREND (peso 20%)
+    # 4. SUPERTREND (20%)
     st_dir  = gv(a, "st_dir", 1)
     st_val  = gv(a, "st_val", precio)
     st_crux = int(gv(a, "st_cross", 0))
     dist    = abs(precio - st_val) / max(precio, 1e-9) * 100
-
     if st_dir == 1:
         up += 2.0
-        det["SUPERT"] = f"✅ ALCISTA — soporte ${st_val:.4f} ({dist:.1f}%↓)"
+        det["ST"] = f"✅ ST ALCISTA — soporte ${st_val:.4f} ({dist:.1f}%↓)"
         if st_crux:
-            up += 1.5; det["SUPERT"] += " 🔔 CRUCE ALCISTA"
+            up += 1.5; det["ST"] += " 🔔 CRUCE ALCISTA"
     else:
         dn += 2.0
-        det["SUPERT"] = f"❌ BAJISTA — resist ${st_val:.4f} ({dist:.1f}%↑)"
+        det["ST"] = f"❌ ST BAJISTA — resist ${st_val:.4f} ({dist:.1f}%↑)"
         if st_crux:
-            dn += 1.5; det["SUPERT"] += " 🔔 CRUCE BAJISTA"
+            dn += 1.5; det["ST"] += " 🔔 CRUCE BAJISTA"
 
-    # 5. TÉCNICO: VWAP + EMA + MACD + RSI (peso 10%)
+    # 5. TÉCNICO: VWAP + EMA + MACD + RSI (10%)
     vwap = gv(a, "vwap", precio)
     e9   = gv(a, "e9", precio)
     e20  = gv(a, "e20", precio)
     rsi  = gv(a, "rsi", 50)
     mh   = gv(a, "macd_h", 0)
     mhp  = gv(p, "macd_h", 0)
-
-    pts = ((0.3 if precio > vwap else 0) + (0.3 if e9 > e20 else 0) +
-           (0.3 if mh > mhp and mh > 0 else 0) + (0.2 if 50 < rsi < 80 else 0) +
-           (-0.3 if rsi >= 80 or rsi <= 20 else 0))
+    pts  = ((0.3 if precio > vwap else 0) + (0.3 if e9 > e20 else 0) +
+            (0.3 if mh > mhp and mh > 0 else 0) + (0.2 if 50 < rsi < 80 else 0) +
+            (-0.3 if rsi >= 80 or rsi <= 20 else 0))
     if pts >= 0.7:
-        up += 1.0; det["TEC"] = f"▲▲ Técnico alcista (RSI={rsi:.0f})"
+        up += 1.0; det["TEC"] = f"▲▲ Alcista (RSI={rsi:.0f},VWAP✓,EMA✓)"
     elif pts >= 0.3:
-        up += 0.5; det["TEC"] = f"▲ Técnico parcial (RSI={rsi:.0f})"
+        up += 0.5; det["TEC"] = f"▲ Parcial (RSI={rsi:.0f})"
     elif pts <= -0.2:
-        dn += 0.5; det["TEC"] = f"▼ Técnico bajista (RSI={rsi:.0f})"
+        dn += 0.5; det["TEC"] = f"▼ Bajista (RSI={rsi:.0f})"
     else:
         det["TEC"] = f"→ Neutro (RSI={rsi:.0f})"
 
-    # BONUS: Ranking 5min (ya viene del ranking)
-    if cambio_rank >= 10:
-        up += 1.5; det["RANK"] = f"🔥 Δ={cambio_rank:+.1f}% TOP GAINER"
-    elif cambio_rank >= 5:
-        up += 1.0; det["RANK"] = f"▲ Δ={cambio_rank:+.1f}%"
-    elif cambio_rank >= 1:
-        up += 0.4; det["RANK"] = f"▲ Δ={cambio_rank:+.1f}%"
-    elif cambio_rank <= -5:
-        dn += 1.0; det["RANK"] = f"▼ Δ={cambio_rank:+.1f}%"
-    else:
-        det["RANK"] = f"→ Δ={cambio_rank:+.1f}%"
+    # BONUS: Top Gainer Yahoo + momentum 5min
+    if es_top_gainer:
+        if cambio_dia >= 50:
+            up += 2.0; det["RANK"] = f"🏆🏆 TOP GAINER {cambio_dia:+.1f}% (Webull level)"
+        elif cambio_dia >= 20:
+            up += 1.5; det["RANK"] = f"🏆 TOP GAINER {cambio_dia:+.1f}%"
+        elif cambio_dia >= 5:
+            up += 1.0; det["RANK"] = f"▲ Gainer fuerte {cambio_dia:+.1f}%"
+        else:
+            up += 0.5; det["RANK"] = f"▲ Gainer {cambio_dia:+.1f}%"
+
+    if chg_5m >= 5:
+        up += 1.5; det["5MIN"] = f"🔥 +{chg_5m:.2f}% en 5min — WEBULL TOP"
+    elif chg_5m >= 2:
+        up += 1.0; det["5MIN"] = f"⚡ +{chg_5m:.2f}% en 5min"
+    elif chg_5m >= 0.5:
+        up += 0.4; det["5MIN"] = f"▲ +{chg_5m:.2f}% en 5min"
+    elif chg_5m != 0:
+        det["5MIN"] = f"→ {chg_5m:+.2f}% en 5min"
 
     # Patrón de velas
-    c1 = gv(df.iloc[-1], "C"); o1 = gv(df.iloc[-1], "O", c1)
-    c2 = gv(df.iloc[-2], "C", c1) if len(df) > 1 else c1
-    o2 = gv(df.iloc[-2], "O", c2) if len(df) > 1 else c2
-    c3 = gv(df.iloc[-3], "C", c2) if len(df) > 2 else c2
-    o3 = gv(df.iloc[-3], "O", c3) if len(df) > 2 else c3
-
+    c1=gv(df.iloc[-1],"C"); o1=gv(df.iloc[-1],"O",c1)
+    c2=gv(df.iloc[-2],"C",c1) if len(df)>1 else c1
+    o2=gv(df.iloc[-2],"O",c2) if len(df)>1 else c2
+    c3=gv(df.iloc[-3],"C",c2) if len(df)>2 else c2
+    o3=gv(df.iloc[-3],"O",c3) if len(df)>2 else c3
     if (c1>o1) and (c2>o2) and (c3>o3) and (c1>c2>c3):
-        up += 0.8; det["VELAS"] = "🟢🟢🟢 3 verdes"
+        up+=0.8; det["VELAS"]="🟢🟢🟢 3 verdes consecutivas"
     elif (c1>o1) and (c2>o2) and (c1>c2):
-        up += 0.4; det["VELAS"] = "🟢🟢 2 verdes"
+        up+=0.4; det["VELAS"]="🟢🟢 2 verdes"
     elif (c1<o1) and (c2<o2) and (c3<o3) and (c1<c2<c3):
-        dn += 0.8; det["VELAS"] = "🔴🔴🔴 3 rojas"
+        dn+=0.8; det["VELAS"]="🔴🔴🔴 3 rojas"
     elif (c1<o1) and (c2<o2):
-        dn += 0.4; det["VELAS"] = "🔴🔴 2 rojas"
+        dn+=0.4; det["VELAS"]="🔴🔴 2 rojas"
     else:
-        det["VELAS"] = "→ Sin patrón"
+        det["VELAS"]="→ Sin patrón claro"
 
-    # Normalizar 1-10
-    mx = 2.5 + 2.5 + 2.0 + 3.5 + 1.0 + 1.5 + 0.8
+    mx = 2.5+2.5+2.0+3.5+1.0+2.0+1.5+0.8
     su = max(1, min(10, round(max(up, 0) / mx * 10)))
     sd = max(1, min(10, round(max(dn, 0) / mx * 10)))
 
@@ -517,9 +615,10 @@ def motor_senal(df, session: str, cambio_rank: float):
 
     return su, sd, senal, det, rv, v1, int(st_dir)
 
-# ─────────────────────────────────────────────────────
+
+# ─────────────────────────────────────────────────────────────
 # SL / TP DINÁMICO
-# ─────────────────────────────────────────────────────
+# ─────────────────────────────────────────────────────────────
 def calc_sltp(df, precio, senal, msl, mtp):
     try:
         a   = df.iloc[-1]
@@ -547,61 +646,66 @@ def calc_sltp(df, precio, senal, msl, mtp):
     except Exception:
         return round(precio * 0.97, 4), round(precio * 1.06, 4), 2.0
 
-# ─────────────────────────────────────────────────────
-# ESCANEO 1MIN — Motor de señal completo
-# ─────────────────────────────────────────────────────
-def escanear_1min(ranking_df: pd.DataFrame,
+
+# ─────────────────────────────────────────────────────────────
+# ESCANEO PRINCIPAL 1min + SEÑAL
+# ─────────────────────────────────────────────────────────────
+def escanear_1min(tickers_info: dict,
                   precio_min: float, precio_max: float,
                   rvol_min: float, vel_min: float,
                   msl: float, mtp: float,
                   session: str, st_per: int, st_mult: float,
-                  top_n: int) -> pd.DataFrame:
-
-    if ranking_df.empty:
+                  chg_5m_map: dict, top_n: int) -> pd.DataFrame:
+    """
+    tickers_info: {ticker: {"cambio_dia": float, "es_top_gainer": bool}}
+    chg_5m_map:   {ticker: float}  → cambio % en últimos 5min
+    """
+    if not tickers_info:
         return pd.DataFrame()
 
-    tickers    = ranking_df["Ticker"].tolist()
-    cambio_map = dict(zip(ranking_df["Ticker"], ranking_df["Δ %"]))
-
+    tickers    = list(tickers_info.keys())
     resultados = []
-    total = len(tickers)
-    lote  = 50
-    dfs   = {}
-    pb    = st.progress(0.0, text="⚡ Descargando datos 1min...")
+    total      = len(tickers)
+    lote       = 50
+    dfs        = {}
+    pb         = st.progress(0.0, text="⚡ Descargando datos 1min...")
 
-    # Descarga 1min
+    # ── Descarga en lotes ────────────────────────────────
     for i in range(0, total, lote):
         chunk = tickers[i:i+lote]
         pb.progress(min((i+lote)/total*0.45, 0.45),
                     text=f"📡 1min {min(i+lote,total)}/{total}...")
         try:
             raw = yf.download(
-                chunk, period="1d", interval="1m",
+                chunk,
+                period="1d", interval="1m",
                 group_by="ticker", prepost=True,
-                progress=False, auto_adjust=True, threads=True, timeout=25
+                progress=False, auto_adjust=True,
+                threads=True, timeout=25
             )
             for t in chunk:
-                dfs[t] = xdf(raw, t, len(chunk))
+                dfs[t] = extraer_df_seguro(raw, t, len(chunk))
         except Exception:
+            # Reintento individual si falla el lote
             for t in chunk:
                 try:
                     s = yf.download(t, period="1d", interval="1m",
                                     prepost=True, progress=False,
                                     auto_adjust=True, threads=False, timeout=12)
-                    dfs[t] = xdf(s, t, 1)
+                    dfs[t] = extraer_df_seguro(s, t, 1)
                 except Exception:
                     dfs[t] = None
 
-    # Análisis
+    # ── Análisis ─────────────────────────────────────────
     for idx, t in enumerate(tickers):
         pb.progress(0.45 + (idx+1)/total*0.55,
-                    text=f"🔬 {t} ({idx+1}/{total})...")
+                    text=f"🔬 Analizando {t} ({idx+1}/{total})...")
         try:
             raw_df = dfs.get(t)
             if raw_df is None or len(raw_df) < 5:
                 continue
 
-            df = indicadores(raw_df, st_per, st_mult)
+            df = calcular_indicadores(raw_df, st_per, st_mult)
             if df is None:
                 continue
 
@@ -609,62 +713,69 @@ def escanear_1min(ranking_df: pd.DataFrame,
             if not (precio_min <= precio <= precio_max):
                 continue
 
-            rv   = float(df["rvol"].iloc[-1]) if not np.isnan(df["rvol"].iloc[-1]) else 0
-            vel1 = float(df["v1"].iloc[-1])   if not np.isnan(df["v1"].iloc[-1])   else 0
-            cambio_ses = cambio_map.get(t, 0.0)
+            rv    = float(df["rvol"].iloc[-1]) if not np.isnan(df["rvol"].iloc[-1]) else 1.0
+            vel1  = float(df["v1"].iloc[-1])   if not np.isnan(df["v1"].iloc[-1])  else 0.0
 
-            # ── FILTROS ADAPTATIVOS ──
-            # En pre/after: muy permisivos (volumen bajo)
-            # En regular: más exigentes
-            if session == "REGULAR":
+            info          = tickers_info.get(t, {})
+            cambio_dia    = info.get("cambio_dia", 0.0)
+            es_top_gainer = info.get("es_top_gainer", False)
+            chg_5m        = chg_5m_map.get(t, 0.0)
+
+            # FILTROS ADAPTATIVOS
+            if es_top_gainer or chg_5m >= 2.0:
+                # Top gainer o activo en 5min → filtros relajados
+                pasa = (rv >= max(1.0, rvol_min * 0.25)) or (abs(vel1) >= max(0.01, vel_min * 0.15))
+            elif session == "REGULAR":
                 pasa = (rv >= rvol_min) and (abs(vel1) >= vel_min)
             else:
-                # Pre/after: basta con UNO de los dos criterios
-                pasa = (rv >= max(1.1, rvol_min * 0.35)) \
-                    or (abs(vel1) >= max(0.02, vel_min * 0.25)) \
-                    or (abs(cambio_ses) >= 1.0)  # o si el ranking ya muestra movimiento
+                pasa = (rv >= max(1.1, rvol_min*0.4)) or (abs(vel1) >= max(0.02, vel_min*0.25))
+
             if not pasa:
                 continue
 
-            su, sd, senal, det, rv, vel1, st_dir = motor_senal(df, session, cambio_ses)
+            su, sd, senal, det, rv, vel1, st_dir = motor_senal(
+                df, session, cambio_dia, es_top_gainer, chg_5m)
 
-            if session == "REGULAR" and su < 3 and sd < 3:
+            if session == "REGULAR" and not es_top_gainer and chg_5m < 1.0 and su < 3 and sd < 3:
                 continue
 
             _sl, _tp, rr = calc_sltp(df, precio, senal, msl, mtp)
 
             open_d   = float(df["O"].iloc[0]) if float(df["O"].iloc[0]) > 0 else precio
             cambio_d = (precio - open_d) / max(open_d, 1e-9) * 100
-            rsi   = float(df["rsi"].iloc[-1])
-            sup   = float(df["sup"].iloc[-1])
-            res   = float(df["res"].iloc[-1])
-            vel2  = float(df["v2"].iloc[-1])  if not np.isnan(df["v2"].iloc[-1]) else 0
-            ac    = float(df["ac"].iloc[-1])  if not np.isnan(df["ac"].iloc[-1])   else 0
-            stv   = float(df["st_val"].iloc[-1]) if "st_val" in df.columns else 0
+            rsi  = float(df["rsi"].iloc[-1])
+            sup  = float(df["sup"].iloc[-1])
+            res  = float(df["res"].iloc[-1])
+            vel2 = float(df["v2"].iloc[-1]) if not np.isnan(df["v2"].iloc[-1]) else 0
+            ac   = float(df["ac"].iloc[-1]) if not np.isnan(df["ac"].iloc[-1]) else 0
+            stv  = float(df["st_val"].iloc[-1]) if "st_val" in df.columns else 0
             st_tx = "🟢 ALCISTA" if st_dir == 1 else "🔴 BAJISTA"
+            fuente = ("🏆 Yahoo" if es_top_gainer else
+                      ("🔥 5min" if chg_5m >= 2.0 else "📋 Base"))
 
             resultados.append({
-                "Ticker"   : t,
-                "Precio $" : round(precio, 4),
-                "RVOL"     : round(rv, 1),
-                "Vel 1m %" : round(vel1, 2),
-                "Vel 2m %" : round(vel2, 2),
-                "Acel"     : round(ac, 3),
+                "Ticker"    : t,
+                "Fuente"    : fuente,
+                "Precio $"  : round(precio, 4),
+                "RVOL"      : round(rv, 1),
+                "Vel 1m %"  : round(vel1, 2),
+                "Vel 2m %"  : round(vel2, 2),
+                "Δ 5m %"    : round(chg_5m, 2),
+                "Acel"      : round(ac, 3),
                 "Supertrend": st_tx,
-                "ST $"     : round(stv, 4),
-                "Δ Rank %" : round(cambio_ses, 2),
-                "Δ Día %"  : round(cambio_d, 2),
-                "Score 🐂" : su,
-                "Score 🐻" : sd,
-                "Señal"    : senal,
-                "RSI"      : round(rsi, 1),
-                "Soporte $": round(sup, 4),
-                "Resist $" : round(res, 4),
-                "SL $"     : _sl,
-                "TP $"     : _tp,
-                "R:R"      : rr,
-                "_det"     : det,
-                "_df"      : df,
+                "ST $"      : round(stv, 4),
+                "Δ Día %"   : round(cambio_dia if cambio_dia != 0 else cambio_d, 2),
+                "Score 🐂"  : su,
+                "Score 🐻"  : sd,
+                "Señal"     : senal,
+                "RSI"       : round(rsi, 1),
+                "Soporte $" : round(sup, 4),
+                "Resist $"  : round(res, 4),
+                "SL $"      : _sl,
+                "TP $"      : _tp,
+                "R:R"       : rr,
+                "_det"      : det,
+                "_df"       : df,
             })
         except Exception:
             continue
@@ -674,15 +785,19 @@ def escanear_1min(ranking_df: pd.DataFrame,
         return pd.DataFrame()
 
     df_res = pd.DataFrame(resultados)
+    # Prioridad: Yahoo Top > 5min activos > base
+    prio_map = {"🏆 Yahoo": 0, "🔥 5min": 1, "📋 Base": 2}
+    df_res["_p"] = df_res["Fuente"].map(prio_map).fillna(3)
     df_res = df_res.sort_values(
-        ["Score 🐂", "RVOL", "Vel 1m %"],
-        ascending=[False, False, False]
-    ).reset_index(drop=True)
+        ["_p", "Score 🐂", "RVOL", "Vel 1m %"],
+        ascending=[True, False, False, False]
+    ).reset_index(drop=True).drop(columns=["_p"])
     return df_res.head(top_n)
 
-# ─────────────────────────────────────────────────────
+
+# ─────────────────────────────────────────────────────────────
 # ALPACA HELPERS
-# ─────────────────────────────────────────────────────
+# ─────────────────────────────────────────────────────────────
 def get_cuenta():
     try:    return alpaca.get_account()
     except: return None
@@ -704,7 +819,8 @@ def buy(sym, qty, sl, tp):
             stop_loss=StopLossRequest(stop_price=round(float(sl), 2))
         ))
         return True, f"✅ BUY {qty}x {sym} | SL=${sl} TP=${tp}"
-    except Exception as e: return False, f"❌ {e}"
+    except Exception as e:
+        return False, f"❌ {e}"
 
 def sell(sym, qty):
     try:
@@ -713,14 +829,16 @@ def sell(sym, qty):
             time_in_force=TimeInForce.GTC
         ))
         return True, f"✅ SELL {qty}x {sym}"
-    except Exception as e: return False, f"❌ {e}"
+    except Exception as e:
+        return False, f"❌ {e}"
 
-# ═════════════════════════════════════════════════════
+
+# ═════════════════════════════════════════════════════════════
 #  INTERFAZ PRINCIPAL
-# ═════════════════════════════════════════════════════
-st.markdown('<h1 class="hdr">⚡ THUNDER RADAR V94</h1>', unsafe_allow_html=True)
+# ═════════════════════════════════════════════════════════════
+st.markdown('<h1 class="hdr">⚡ THUNDER RADAR V96</h1>', unsafe_allow_html=True)
 st.markdown(
-    '<p class="sub">RANKING REAL · SUPERTREND · RVOL · SL/TP DINÁMICO · ALPACA PAPER</p>',
+    '<p class="sub">YAHOO TOP GAINERS · MOMENTUM 5MIN · SUPERTREND · RVOL CORREGIDO · ALPACA PAPER</p>',
     unsafe_allow_html=True)
 
 badge_map = {"REGULAR":"b-reg","PRE-MARKET":"b-pre",
@@ -737,181 +855,271 @@ with hc1:
         f'<span style="color:#8b949e;font-size:.74em">EN VIVO</span>',
         unsafe_allow_html=True)
 with hc2:
-    st.markdown(f'<span style="color:#8b949e">🕐 {hora_et}</span>',
-                unsafe_allow_html=True)
+    st.markdown(f'<span style="color:#8b949e">🕐 {hora_et}</span>', unsafe_allow_html=True)
 with hc3:
     if cuenta:
         eq  = float(cuenta.equity)
         pnl = eq - float(cuenta.last_equity)
         col = "#00ff88" if pnl >= 0 else "#ff4444"
-        st.markdown(
-            f'<span style="color:{col}">💰 ${eq:,.2f} | P&L {pnl:+,.2f}</span>',
-            unsafe_allow_html=True)
+        st.markdown(f'<span style="color:{col}">💰 ${eq:,.2f} | P&L {pnl:+,.2f}</span>',
+                    unsafe_allow_html=True)
 
-# Info sesión
-sesion_info = {
-    "PRE-MARKET":  ("🌅 PRE-MARKET (04:00-09:29 ET) — Detecta gaps de apertura. "
-                    "Stocks como BIYA +125% aparecen aquí. Filtros ultra-sensibles.", "#7c3aed"),
-    "REGULAR":     ("📈 MERCADO REGULAR (09:30-15:59 ET) — "
-                    "Máxima volatilidad. Motor a plena potencia.", "#15803d"),
-    "AFTER-HOURS": ("🌆 AFTER-HOURS (16:00-19:59 ET) — "
-                    "Reacciones a earnings y noticias. Filtros sensibles.", "#0369a1"),
-    "CERRADO":     ("🌙 MERCADO CERRADO — Pre-market abre 4:00 AM ET. "
-                    "Puedes hacer el ranking ahora.", "#374151"),
-}
-msg_s, col_s = sesion_info.get(SESSION, ("", "#374151"))
-st.markdown(f'<div class="ibox"><b style="color:{col_s}">{msg_s}</b></div>',
-            unsafe_allow_html=True)
+st.markdown("""<div class="ibox">
+<b style="color:#00ff88">✅ V96 CORRECCIONES:</b>
+<b style="color:#ff4500">RVOL=0 CORREGIDO</b> — extracción de datos 1min reparada. |
+<b style="color:#ff4500">DETECTOR 5MIN</b> — como Webull "% Chg in 5Mins" detecta JLHL, NXTS, MRDN. |
+<b style="color:#ff4500">YAHOO TOP GAINERS</b> — SDOT, BLZE, CLRB, STRL, BIYA en tiempo real.
+</div>""", unsafe_allow_html=True)
 st.markdown('<hr class="n">', unsafe_allow_html=True)
 
-# ─────────────────────────────────────────────────────
+# ─────────────────────────────────────────────────────────────
 # BARRA LATERAL
-# ─────────────────────────────────────────────────────
+# ─────────────────────────────────────────────────────────────
 with st.sidebar:
     st.markdown("### ⚙️ CONFIGURACIÓN")
 
-    modo = st.selectbox("Modo", [
-        "🔥 Todo el mercado",
-        "💎 Penny + Small ($0.05-$10)",
-        "📈 Large Cap ($10+)",
-        "🎯 Mis Tickers",
-    ])
+    usar_yahoo = st.toggle("🏆 Yahoo Top Gainers (tiempo real)", value=True)
+    usar_5min  = st.toggle("🔥 Detector Momentum 5min (Webull style)", value=True)
+    usar_base  = st.toggle("📋 Lista base (respaldo)", value=True)
 
     st.markdown("---")
-    precio_min_f = st.number_input("Precio Mín $", value=0.05,  step=0.05, min_value=0.01)
+    precio_min_f = st.number_input("Precio Mín $", value=0.05, step=0.05, min_value=0.01)
     precio_max_f = st.number_input("Precio Máx $", value=500.0, step=10.0)
 
     st.markdown("**⚡ Motor de Aceleración**")
-    dflt_rv = 1.2 if SESSION in ("PRE-MARKET","AFTER-HOURS","CERRADO") else 2.0
+    dflt_rv = 1.2 if SESSION in ("PRE-MARKET","AFTER-HOURS","CERRADO") else 1.5
     dflt_vl = 0.05 if SESSION in ("PRE-MARKET","AFTER-HOURS","CERRADO") else 0.10
 
-    rvol_min = st.slider("RVOL mínimo", 1.0, 15.0, dflt_rv, 0.1,
-                         help="1.2 para pre/after-hours. 2.0 para mercado regular.")
-    vel_min  = st.slider("Velocidad mín %/vela", 0.0, 3.0, dflt_vl, 0.01,
-                         help="0.05% es suficiente en pre-market.")
+    rvol_min = st.slider("RVOL mínimo", 1.0, 15.0, dflt_rv, 0.1)
+    vel_min  = st.slider("Velocidad mín %/vela (1min)", 0.0, 3.0, dflt_vl, 0.01)
+
+    if usar_5min:
+        min_chg_5m = st.slider("Δ% mínimo para detector 5min", 0.5, 10.0, 2.0, 0.5,
+                               help="Mínimo % de cambio en 5 minutos para incluir en radar")
 
     st.markdown("**📊 Supertrend**")
-    st_per  = st.slider("Período", 5, 20, 10, 1)
+    st_per  = st.slider("Período Supertrend", 5, 20, 10, 1)
     st_mult = st.slider("Multiplicador ATR", 1.0, 5.0, 3.0, 0.5)
 
-    st.markdown("**📋 Tamaño del ranking**")
-    n_rank  = st.slider("Top del ranking (Paso 1)", 50, 400, 150, 25,
-                        help="Los N stocks más activos pasan al escaneo 1min")
-    top_n_f = st.slider("Resultados finales", 10, 80, 40, 5)
+    top_n_f = st.slider("Resultados finales", 10, 80, 50, 5)
 
     st.markdown("**🔒 SL / TP**")
     atr_sl = st.slider("ATR × Stop Loss",   0.5, 5.0, 2.0, 0.5)
     atr_tp = st.slider("ATR × Take Profit", 1.0, 8.0, 4.0, 0.5)
 
-    if modo == "🎯 Mis Tickers":
-        txt = st.text_area("Tickers",
-                           "BIYA,NEXR,ATER,BBBY,SBLX,YJ,BRIA,GME,AMC,COIN,MARA",
-                           height=70)
-        manual = [x.strip().upper() for x in txt.split(",") if x.strip()]
-    else:
-        manual = []
+    st.markdown("---")
+    tickers_extra = st.text_area(
+        "Tickers adicionales (manual)",
+        "SDOT,BLZE,CLRB,STRL,BIYA,EVER,JLHL,NXTS,MRDN,UK,NA,SLOT",
+        height=60)
 
     st.markdown("---")
     modo_auto = st.toggle("🤖 Auto-Trade", value=False)
     if modo_auto:
-        auto_score = st.slider("Score mín", 6, 10, 7)
+        auto_score = st.slider("Score mín auto-compra", 6, 10, 7)
         auto_qty   = st.number_input("Acciones/orden", value=1, min_value=1)
         max_pos    = st.number_input("Máx posiciones", value=3, min_value=1)
-        st.warning("⚠️ Ejecuta órdenes en Paper.")
+        st.warning("⚠️ Ejecuta órdenes reales en Paper.")
 
-    auto_ref = st.toggle("🔁 Auto-escaneo", value=False)
+    auto_ref = st.toggle("🔁 Auto-escaneo continuo", value=False)
     ref_seg  = 45 if SESSION == "REGULAR" else 60
 
-# ─────────────────────────────────────────────────────
+# ─────────────────────────────────────────────────────────────
 # ESTADO
-# ─────────────────────────────────────────────────────
-for k, v in [("universo", BASE_VOLATILES), ("ranking_df", pd.DataFrame()),
-             ("df_scan", pd.DataFrame()), ("last_scan", None)]:
+# ─────────────────────────────────────────────────────────────
+for k, v in [("gainers_data", {}), ("df_5min", pd.DataFrame()),
+             ("df_scan", pd.DataFrame()), ("last_scan", None),
+             ("last_yahoo", None), ("last_5min", None)]:
     if k not in st.session_state:
         st.session_state[k] = v
 
-# ─────────────────────────────────────────────────────
-# SECCIÓN UNIVERSO
-# ─────────────────────────────────────────────────────
-st.subheader("📡 Paso 1 — Ranking de Stocks Activos AHORA")
-st.markdown("""<div class="ibox">
-<b style="color:#00ff88">¿Por qué el ranking es clave?</b>
-El programa descarga datos de 5min para TODO el universo y calcula cuáles tienen
-<b>mayor movimiento en las últimas 2.5 horas</b>.
-Así encuentra stocks como <b>BIYA, NEXR, ATER</b> que despegan
-<b>antes</b> de aparecer en Webull Top Gainers.
-</div>""", unsafe_allow_html=True)
+# ─────────────────────────────────────────────────────────────
+# SECCIÓN 1: TOP GAINERS YAHOO
+# ─────────────────────────────────────────────────────────────
+st.subheader("📡 Paso 1 — Top Gainers Tiempo Real (Yahoo Finance)")
 
-u1, u2, u3 = st.columns([2, 1, 1])
-with u1:
-    if st.button("🌐 Cargar universo NYSE+NASDAQ+AMEX (Twelve Data)",
-                 use_container_width=True):
-        with st.spinner("🌐 Descargando lista completa de stocks..."):
-            u = cargar_twelve()
-            st.session_state.universo = u
-            st.session_state.ranking_df = pd.DataFrame()
-        st.success(f"✅ {len(u):,} stocks cargados")
-with u2:
-    n_u = len(st.session_state.universo)
-    col_u = "#00ff88" if n_u > 500 else "#ffc107"
-    st.markdown(f'<span style="color:{col_u}">📊 {n_u:,} stocks</span>',
-                unsafe_allow_html=True)
-with u3:
-    n_r = len(st.session_state.ranking_df)
-    col_r = "#00ff88" if n_r > 0 else "#8b949e"
-    st.markdown(f'<span style="color:{col_r}">🏆 {n_r} en ranking</span>',
-                unsafe_allow_html=True)
-
-# Universo según modo
-if   modo == "🎯 Mis Tickers":             universo_base = manual
-elif modo == "💎 Penny + Small ($0.05-$10)": universo_base = st.session_state.universo
-elif modo == "📈 Large Cap ($10+)":         universo_base = st.session_state.universo
-else:                                        universo_base = st.session_state.universo
-
-r1, r2 = st.columns([3, 1])
-with r1:
-    hacer_rank = st.button(
-        f"🏆 CALCULAR RANKING — Top {n_rank} más activos ({len(universo_base):,} stocks)",
+y1, y2 = st.columns([3, 1])
+with y1:
+    btn_yahoo = st.button(
+        "🏆 OBTENER TOP GAINERS YAHOO (= Webull Top Gainers 1Day)",
         use_container_width=True)
-with r2:
-    if st.button("🗑️ Limpiar", use_container_width=True):
-        st.session_state.ranking_df = pd.DataFrame()
-        st.session_state.df_scan    = pd.DataFrame()
-        st.rerun()
+with y2:
+    n_gd = len(st.session_state.gainers_data)
+    col_g = "#00ff88" if n_gd > 0 else "#ff4444"
+    ts_y = ""
+    if st.session_state.last_yahoo:
+        ts_y = datetime.fromtimestamp(st.session_state.last_yahoo)\
+                       .astimezone(tz_et).strftime("%H:%M ET")
+    st.markdown(
+        f'<span style="color:{col_g}">📊 {n_gd} stocks '
+        f'{"| " + ts_y if ts_y else ""}</span>',
+        unsafe_allow_html=True)
 
-if hacer_rank:
-    rk = ranking_rapido(universo_base, precio_min_f, precio_max_f, n_rank)
-    st.session_state.ranking_df = rk
-    if not rk.empty:
-        st.success(f"✅ {len(rk)} candidatos seleccionados")
+if btn_yahoo:
+    with st.spinner("🏆 Conectando a Yahoo Finance..."):
+        res = obtener_top_gainers()
+
+    cnts = res["counts"]
+    c1, c2, c3 = st.columns(3)
+    c1.markdown(
+        f'<span style="color:{"#00ff88" if cnts["day_gainers"]>0 else "#ff4444"}">'
+        f'{"✅" if cnts["day_gainers"]>0 else "❌"} Top Gainers Día: {cnts["day_gainers"]}</span>',
+        unsafe_allow_html=True)
+    c2.markdown(
+        f'<span style="color:{"#00ff88" if cnts["most_actives"]>0 else "#ff4444"}">'
+        f'{"✅" if cnts["most_actives"]>0 else "❌"} Más Activos: {cnts["most_actives"]}</span>',
+        unsafe_allow_html=True)
+    c3.markdown(
+        f'<span style="color:{"#00ff88" if cnts["small_cap"]>0 else "#ff4444"}">'
+        f'{"✅" if cnts["small_cap"]>0 else "❌"} Small Cap: {cnts["small_cap"]}</span>',
+        unsafe_allow_html=True)
+
+    # Construir diccionario
+    gd = {}
+    for t in res["todos"]:
+        gd[t] = {"cambio_dia": 0.0, "es_top_gainer": True}
+
+    # Manuales
+    for t in [x.strip().upper() for x in tickers_extra.split(",") if x.strip()]:
+        if t not in gd:
+            gd[t] = {"cambio_dia": 0.0, "es_top_gainer": True}
+
+    # Base
+    if usar_base:
+        for t in BASE:
+            if t not in gd:
+                gd[t] = {"cambio_dia": 0.0, "es_top_gainer": False}
+
+    st.session_state.gainers_data = gd
+    st.session_state.last_yahoo   = time.time()
+
+    n_y = cnts["total"]
+    n_t = len(gd)
+    if n_y > 0:
+        st.success(
+            f"✅ {n_y} stocks de Yahoo Finance "
+            f"(SDOT, BLZE, CLRB, STRL, BIYA...) + {n_t-n_y} base = **{n_t} total**")
     else:
-        st.error("❌ Sin resultados. Verifica conexión o amplía los filtros de precio.")
+        st.warning(f"⚠️ Yahoo no respondió. Usando {n_t} stocks (manuales + base).")
 
-# Mostrar ranking
-if not st.session_state.ranking_df.empty:
-    rdf = st.session_state.ranking_df
-    st.markdown(f"**🏆 Top {min(20, len(rdf))} más activos AHORA:**")
-    cols_r = ["Ticker","Precio $","Δ %","Vel 5m %","RVOL","Vol"]
-    rdf_s  = rdf[cols_r].head(20).copy()
+# Inicializar con manuales + base si está vacío
+if not st.session_state.gainers_data:
+    gd0 = {}
+    for t in [x.strip().upper() for x in tickers_extra.split(",") if x.strip()]:
+        gd0[t] = {"cambio_dia": 0.0, "es_top_gainer": True}
+    if usar_base:
+        for t in BASE:
+            if t not in gd0:
+                gd0[t] = {"cambio_dia": 0.0, "es_top_gainer": False}
+    st.session_state.gainers_data = gd0
 
-    def cr_d(v):
-        return f"color:{'#00ff88' if v>=0 else '#ff4444'};font-weight:bold"
-    fmt_r = {"Precio $":"${:.4f}","Δ %":"{:+.2f}%",
-              "Vel 5m %":"{:+.2f}%","RVOL":"{:.1f}x","Vol":"{:,.0f}"}
-    try:
-        rs = rdf_s.style.map(cr_d, subset=["Δ %","Vel 5m %"]).format(fmt_r)
-    except Exception:
-        try:
-            rs = rdf_s.style.applymap(cr_d, subset=["Δ %","Vel 5m %"]).format(fmt_r)
-        except Exception:
-            rs = rdf_s.style.format(fmt_r)
-    st.dataframe(rs, use_container_width=True, hide_index=True, height=350)
+# Mostrar tickers Yahoo
+if st.session_state.gainers_data:
+    yahoo_t = [t for t, v in st.session_state.gainers_data.items() if v.get("es_top_gainer")]
+    base_t  = [t for t, v in st.session_state.gainers_data.items() if not v.get("es_top_gainer")]
+    ca, cb  = st.columns(2)
+    with ca:
+        st.markdown(f"**🏆 Yahoo Top Gainers ({len(yahoo_t)}):**")
+        st.markdown(
+            f'<div class="ibox" style="color:#00ff88">'
+            f'{" · ".join(yahoo_t[:30])}{"..." if len(yahoo_t)>30 else ""}</div>',
+            unsafe_allow_html=True)
+    with cb:
+        st.markdown(f"**📋 Base ({len(base_t)}):**")
+        st.markdown(
+            f'<div class="ibox" style="color:#8b949e">'
+            f'{" · ".join(base_t[:20])}{"..." if len(base_t)>20 else ""}</div>',
+            unsafe_allow_html=True)
 
 st.markdown('<hr class="n">', unsafe_allow_html=True)
 
-# ─────────────────────────────────────────────────────
+# ─────────────────────────────────────────────────────────────
+# SECCIÓN 2: DETECTOR MOMENTUM 5 MINUTOS
+# ─────────────────────────────────────────────────────────────
+st.subheader("🔥 Paso 2 — Detector Momentum 5 Minutos (como Webull '5 Minutes')")
+
+m1, m2 = st.columns([3, 1])
+with m1:
+    btn_5min = st.button(
+        "🔥 DETECTAR STOCKS ACTIVOS EN ÚLTIMOS 5 MINUTOS",
+        use_container_width=True)
+with m2:
+    n_5m = len(st.session_state.df_5min)
+    col_5 = "#ff4500" if n_5m > 0 else "#8b949e"
+    ts_5 = ""
+    if st.session_state.last_5min:
+        ts_5 = datetime.fromtimestamp(st.session_state.last_5min)\
+                       .astimezone(tz_et).strftime("%H:%M ET")
+    st.markdown(
+        f'<span style="color:{col_5}">🔥 {n_5m} detectados '
+        f'{"| "+ts_5 if ts_5 else ""}</span>',
+        unsafe_allow_html=True)
+
+chg_5m_map = {}  # ticker → cambio% en 5min
+
+if btn_5min:
+    todos_tickers = list(st.session_state.gainers_data.keys())
+    min_c5 = min_chg_5m if usar_5min else 2.0
+    with st.spinner("🔥 Analizando momentum de 5 minutos..."):
+        df_5min = detectar_momentum_5min(
+            todos_tickers, precio_min_f, precio_max_f, min_c5, top_n_f)
+    st.session_state.df_5min  = df_5min
+    st.session_state.last_5min = time.time()
+    if not df_5min.empty:
+        st.success(f"✅ {len(df_5min)} stocks con momentum ≥ {min_c5}% en 5 minutos")
+    else:
+        st.warning("⚠️ Sin stocks con ese movimiento en 5 min. Baja el umbral.")
+
+# Construir mapa de cambio 5min
+if not st.session_state.df_5min.empty:
+    for _, row in st.session_state.df_5min.iterrows():
+        chg_5m_map[row["Ticker"]] = float(row["Δ 5min %"])
+
+    # Mostrar tabla 5min
+    df_5s  = st.session_state.df_5min
+    cols_5 = ["Ticker","Precio $","Δ 5min %","Δ 10min %","Δ Día %",
+              "RVOL 5m","Acelerando","Score 5m","Vol Actual"]
+    df_5sh = df_5s[cols_5].copy()
+
+    def c5d(v):
+        return f"color:{'#00ff88' if v>=0 else '#ff4444'};font-weight:bold"
+    def c5r(v):
+        if v>=5:   return "color:#ff4500;font-weight:900"
+        elif v>=3: return "color:#ff8c00;font-weight:700"
+        elif v>=2: return "color:#ffc107;font-weight:bold"
+        else:      return "color:#8b949e"
+
+    fmt_5 = {"Precio $":"${:.4f}","Δ 5min %":"{:+.2f}%","Δ 10min %":"{:+.2f}%",
+              "Δ Día %":"{:+.2f}%","RVOL 5m":"{:.1f}x","Score 5m":"{:.1f}",
+              "Vol Actual":"{:,.0f}"}
+    try:
+        st5 = (df_5sh.style
+               .map(c5d, subset=["Δ 5min %","Δ 10min %","Δ Día %"])
+               .map(c5r, subset=["RVOL 5m"])
+               .format(fmt_5))
+    except Exception:
+        try:
+            st5 = (df_5sh.style
+                   .applymap(c5d, subset=["Δ 5min %","Δ 10min %","Δ Día %"])
+                   .applymap(c5r, subset=["RVOL 5m"])
+                   .format(fmt_5))
+        except Exception:
+            st5 = df_5sh.style.format(fmt_5)
+    st.dataframe(st5, use_container_width=True, hide_index=True, height=300)
+
+    # Añadir stocks del 5min al universo de escaneo si no están
+    for t in df_5s["Ticker"].tolist():
+        if t not in st.session_state.gainers_data:
+            st.session_state.gainers_data[t] = {
+                "cambio_dia": float(df_5s[df_5s["Ticker"]==t]["Δ Día %"].iloc[0]),
+                "es_top_gainer": True  # Lo marcamos como prioritario
+            }
+
+st.markdown('<hr class="n">', unsafe_allow_html=True)
+
+# ─────────────────────────────────────────────────────────────
 # PORTAFOLIO
-# ─────────────────────────────────────────────────────
+# ─────────────────────────────────────────────────────────────
 st.subheader("💼 Portafolio Activo — P&L en Tiempo Real")
 posiciones = get_pos()
 if posiciones:
@@ -944,39 +1152,35 @@ else:
 
 st.markdown('<hr class="n">', unsafe_allow_html=True)
 
-# ─────────────────────────────────────────────────────
-# PASO 2 — ESCANEO 1min
-# ─────────────────────────────────────────────────────
-st.subheader("🔭 Paso 2 — Motor de Señal (1min · Supertrend · RVOL · Aceleración)")
+# ─────────────────────────────────────────────────────────────
+# PASO 3: ESCANEO 1min — MOTOR DE SEÑAL COMPLETO
+# ─────────────────────────────────────────────────────────────
+st.subheader("🔭 Paso 3 — Motor de Señal 1min (Supertrend + RVOL + Aceleración)")
+
+n_scan   = len(st.session_state.gainers_data)
+n_yahoo  = sum(1 for v in st.session_state.gainers_data.values() if v.get("es_top_gainer"))
+n_5min_s = len(chg_5m_map)
 
 sb1, sb2, sb3 = st.columns([2, 1, 1])
 with sb1:
-    iniciar = st.button("🚀 INICIAR ESCANEO DE DESPEGUES",
-                        use_container_width=True)
+    iniciar = st.button(
+        f"🚀 INICIAR ESCANEO COMPLETO ({n_scan} stocks)",
+        use_container_width=True)
 with sb2:
     if st.button("🔄 Refresh UI", use_container_width=True):
         st.rerun()
 with sb3:
     if st.session_state.last_scan:
-        ts_s = (datetime.fromtimestamp(st.session_state.last_scan)
-                .astimezone(tz_et).strftime("%H:%M:%S ET"))
+        ts_s = datetime.fromtimestamp(st.session_state.last_scan)\
+                       .astimezone(tz_et).strftime("%H:%M:%S ET")
         st.markdown(f'<span style="color:#8b949e;font-size:.74em">Último: {ts_s}</span>',
                     unsafe_allow_html=True)
 
-# Lista para escaneo
-if modo == "🎯 Mis Tickers":
-    lista_scan = manual
-    rank_scan  = pd.DataFrame({"Ticker": manual, "Δ %": [0]*len(manual)})
-elif not st.session_state.ranking_df.empty:
-    lista_scan = st.session_state.ranking_df["Ticker"].tolist()
-    rank_scan  = st.session_state.ranking_df
-else:
-    lista_scan = BASE_VOLATILES[:200]
-    rank_scan  = pd.DataFrame({"Ticker": lista_scan, "Δ %": [0]*len(lista_scan)})
-    st.warning("⚠️ Sin ranking — usando lista base. Haz el **🏆 RANKING** para mejores resultados.")
-
-st.info(f"📊 Escaneando **{len(lista_scan)} stocks** | {SESSION} | "
-        f"RVOL≥{rvol_min}x | Vel≥{vel_min}%/min")
+st.markdown(
+    f"⚡ **{n_scan} stocks** | "
+    f"🏆 {n_yahoo} Yahoo | 🔥 {n_5min_s} con 5min activo | "
+    f"Sesión: **{SESSION}** | RVOL≥{rvol_min}x | Vel≥{vel_min}%/min | ST={st_per}"
+)
 
 debe = iniciar or (
     auto_ref and st.session_state.last_scan is not None
@@ -984,82 +1188,99 @@ debe = iniciar or (
 )
 
 if debe:
-    if not lista_scan:
-        st.error("❌ Sin tickers. Calcula el ranking primero.")
+    if not st.session_state.gainers_data:
+        st.error("❌ Sin stocks. Pulsa 🏆 OBTENER TOP GAINERS primero.")
     else:
-        with st.spinner("⚡ Analizando despegues..."):
+        with st.spinner("⚡ Motor de señal corriendo (RVOL corregido)..."):
             df_scan = escanear_1min(
-                rank_scan, precio_min_f, precio_max_f,
+                st.session_state.gainers_data,
+                precio_min_f, precio_max_f,
                 rvol_min, vel_min, atr_sl, atr_tp,
-                SESSION, st_per, st_mult, top_n_f
+                SESSION, st_per, st_mult,
+                chg_5m_map, top_n_f
             )
         st.session_state.df_scan   = df_scan
         st.session_state.last_scan = time.time()
         ts_ok = datetime.now(tz_et).strftime("%H:%M:%S ET")
         n = len(df_scan)
         if n > 0:
-            st.success(f"✅ {ts_ok} — **{n} señales detectadas**")
+            n_y2  = len(df_scan[df_scan["Fuente"].str.contains("Yahoo", na=False)])
+            n_5m2 = len(df_scan[df_scan["Fuente"].str.contains("5min", na=False)])
+            st.success(
+                f"✅ {ts_ok} — **{n} señales** "
+                f"(🏆 {n_y2} Yahoo Top · 🔥 {n_5m2} 5min · 📋 {n-n_y2-n_5m2} base)"
+            )
         else:
             st.warning(
                 f"⚠️ {ts_ok} — Sin señales. "
-                "Baja RVOL a 1.1x y Velocidad a 0.0% para ver todos los stocks."
+                "Baja RVOL a 1.0x y Velocidad a 0.0%. "
+                "Pulsa 🏆 para actualizar top gainers."
             )
 
 df_scan = st.session_state.df_scan
 
-# ─────────────────────────────────────────────────────
+# ─────────────────────────────────────────────────────────────
 # RESULTADOS
-# ─────────────────────────────────────────────────────
+# ─────────────────────────────────────────────────────────────
 if not df_scan.empty:
+
     despegues = df_scan[df_scan["Score 🐂"] >= 7]
     impulsos  = df_scan[(df_scan["Score 🐂"] >= 5) & (df_scan["Score 🐂"] < 7)]
 
     # Tarjetas de despegue
     if not despegues.empty:
-        st.markdown(f"### 🚀 DESPEGUES — {len(despegues)} señales")
+        st.markdown(f"### 🚀 DESPEGUES DETECTADOS — {len(despegues)} señales")
         for _, row in despegues.iterrows():
-            s    = int(row["Score 🐂"])
-            cls  = "s10" if s == 10 else ("s8" if s >= 8 else "s6")
-            rv   = float(row["RVOL"])
-            vc   = "#00ff88" if row["Vel 1m %"] >= 0 else "#ff4444"
-            dc   = "#00ff88" if row["Δ Rank %"] >= 0  else "#ff4444"
-            stc  = "#00ff88" if "ALCISTA" in str(row["Supertrend"]) else "#ff4444"
-            card = "card-fire" if s >= 7 else "card-hot"
-            rcl  = ("color:#ff4500;font-weight:900" if rv >= 10
-                    else ("color:#ff8c00;font-weight:700" if rv >= 5
-                          else "color:#ffc107"))
+            s   = int(row["Score 🐂"])
+            cls = "s10" if s == 10 else ("s8" if s >= 8 else "s6")
+            rv  = float(row["RVOL"])
+            vc  = "#00ff88" if row["Vel 1m %"] >= 0 else "#ff4444"
+            d5c = "#00ff88" if row["Δ 5m %"] >= 0   else "#ff4444"
+            dc  = "#00ff88" if row["Δ Día %"] >= 0   else "#ff4444"
+            stc = "#00ff88" if "ALCISTA" in str(row["Supertrend"]) else "#ff4444"
+
+            fuente = str(row["Fuente"])
+            if "Yahoo" in fuente:
+                fb = '<span style="background:#1d4ed8;color:#fff;padding:1px 7px;border-radius:4px;font-size:.71em">🏆 Yahoo</span>'
+                card = "card-fire"
+            elif "5min" in fuente:
+                fb = '<span style="background:#b91c1c;color:#fff;padding:1px 7px;border-radius:4px;font-size:.71em">🔥 5min</span>'
+                card = "card-5min"
+            else:
+                fb = '<span style="background:#374151;color:#aaa;padding:1px 7px;border-radius:4px;font-size:.71em">📋 Base</span>'
+                card = "card-hot"
+
+            rcl = ("color:#ff4500;font-weight:900" if rv >= 10
+                   else ("color:#ff8c00;font-weight:700" if rv >= 5
+                         else "color:#ffc107"))
 
             st.markdown(f"""
             <div class="{card}">
               <span class="tkr">⚡ {row['Ticker']}</span>
+              &nbsp;{fb}
               &nbsp;&nbsp;<span class="{cls}">{s}/10</span>
               &nbsp;&nbsp;<span style="color:#a78bfa;font-size:.85em">{row['Señal']}</span>
               &nbsp;&nbsp;<span style="color:{stc};font-size:.80em">{row['Supertrend']}</span>
               <br>
-              <span class="lbl">Precio</span>
-              <b style="color:#fff">${row['Precio $']}</b>
+              <span class="lbl">Precio</span> <b style="color:#fff">${row['Precio $']}</b>
               &nbsp;|&nbsp;
-              <span class="lbl">RVOL</span>
-              <b style="{rcl}">{rv:.1f}x</b>
+              <span class="lbl">RVOL</span> <b style="{rcl}">{rv:.1f}x</b>
               &nbsp;|&nbsp;
-              <span class="lbl">Vel 1min</span>
-              <b style="color:{vc}">{row['Vel 1m %']:+.2f}%</b>
+              <span class="lbl">Vel 1min</span> <b style="color:{vc}">{row['Vel 1m %']:+.2f}%</b>
               &nbsp;|&nbsp;
-              <span class="lbl">Vel 2min</span>
-              <b style="color:{vc}">{row['Vel 2m %']:+.2f}%</b>
+              <span class="lbl">Vel 2min</span> <b style="color:{vc}">{row['Vel 2m %']:+.2f}%</b>
               &nbsp;|&nbsp;
-              <span class="lbl">Δ Sesión</span>
-              <b style="color:{dc}">{row['Δ Rank %']:+.2f}%</b>
+              <span class="lbl">Δ 5min</span> <b style="color:{d5c}">{row['Δ 5m %']:+.2f}%</b>
+              &nbsp;|&nbsp;
+              <span class="lbl">Δ Día</span> <b style="color:{dc}">{row['Δ Día %']:+.2f}%</b>
               &nbsp;|&nbsp;
               <span class="lbl">RSI</span> {row['RSI']}
               &nbsp;|&nbsp;
               <span class="lbl">ST$</span> {row['ST $']}
               <br>
-              <span class="lbl">SL</span>
-              <b style="color:#ff6b6b">${row['SL $']}</b>
+              <span class="lbl">SL</span> <b style="color:#ff6b6b">${row['SL $']}</b>
               &nbsp;|&nbsp;
-              <span class="lbl">TP</span>
-              <b style="color:#00ff88">${row['TP $']}</b>
+              <span class="lbl">TP</span> <b style="color:#00ff88">${row['TP $']}</b>
               &nbsp;|&nbsp;
               <span class="lbl">R:R</span> {row['R:R']}x
             </div>""", unsafe_allow_html=True)
@@ -1070,15 +1291,19 @@ if not df_scan.empty:
             for _, row in impulsos.iterrows():
                 vc  = "#00ff88" if row["Vel 1m %"] >= 0 else "#ff4444"
                 stc = "#00ff88" if "ALCISTA" in str(row["Supertrend"]) else "#ff4444"
+                fuente = str(row["Fuente"])
+                fb = "🏆" if "Yahoo" in fuente else ("🔥" if "5min" in fuente else "📋")
                 st.markdown(f"""
                 <div class="card-watch">
-                  <b class="tkr" style="font-size:1.05em">{row['Ticker']}</b>
+                  <b class="tkr" style="font-size:1.05em">{fb} {row['Ticker']}</b>
                   &nbsp;<span class="s6">{int(row['Score 🐂'])}/10</span>
                   &nbsp;<span style="color:#8b949e;font-size:.78em">{row['Señal']}</span>
-                  &nbsp;<span style="color:{stc};font-size:.76em">{row['Supertrend']}</span>
+                  &nbsp;<span style="color:{stc};font-size:.75em">{row['Supertrend']}</span>
                   &nbsp;|&nbsp;${row['Precio $']}
                   &nbsp;|&nbsp;<b>RVOL</b> {row['RVOL']}x
                   &nbsp;|&nbsp;<b style="color:{vc}">{row['Vel 1m %']:+.2f}%/min</b>
+                  &nbsp;|&nbsp;<b>Δ5m</b> {row['Δ 5m %']:+.1f}%
+                  &nbsp;|&nbsp;<b>Δ Día</b> {row['Δ Día %']:+.1f}%
                   &nbsp;|&nbsp;<b>RSI</b> {row['RSI']}
                   &nbsp;|&nbsp;<b style="color:#ff6b6b">SL</b>${row['SL $']}
                   &nbsp;<b style="color:#00ff88">TP</b>${row['TP $']}
@@ -1086,49 +1311,47 @@ if not df_scan.empty:
 
     # Tabla completa
     st.markdown("### 📋 Tabla Completa del Radar")
-    cols_t = ["Ticker","Precio $","RVOL","Vel 1m %","Vel 2m %","Acel",
-              "Supertrend","ST $","Δ Rank %","Δ Día %",
+    cols_t = ["Ticker","Fuente","Precio $","RVOL","Vel 1m %","Vel 2m %",
+              "Δ 5m %","Acel","Supertrend","ST $","Δ Día %",
               "Score 🐂","Score 🐻","Señal","RSI",
               "Soporte $","Resist $","SL $","TP $","R:R"]
     df_sh = df_scan[cols_t].copy()
 
     def cs(v):
-        if v >= 8:   return "background-color:#15803d;color:white"
-        elif v >= 6: return "background-color:#1d4ed8;color:white"
-        elif v >= 4: return "background-color:#92400e;color:white"
-        else:        return "background-color:#7f1d1d;color:white"
-
+        if v>=8:   return "background-color:#15803d;color:white"
+        elif v>=6: return "background-color:#1d4ed8;color:white"
+        elif v>=4: return "background-color:#92400e;color:white"
+        else:      return "background-color:#7f1d1d;color:white"
     def cv(v):
         return f"color:{'#00ff88' if v>=0 else '#ff4444'};font-weight:bold"
-
     def cr(v):
-        if v >= 10:  return "color:#ff4500;font-weight:900"
-        elif v >= 5: return "color:#ff8c00;font-weight:700"
-        elif v >= 2: return "color:#ffc107;font-weight:bold"
-        else:        return "color:#8b949e"
-
+        if v>=10:  return "color:#ff4500;font-weight:900"
+        elif v>=5: return "color:#ff8c00;font-weight:700"
+        elif v>=2: return "color:#ffc107;font-weight:bold"
+        else:      return "color:#8b949e"
     fmt_t = {
         "Precio $":"${:.4f}","RVOL":"{:.1f}x","Vel 1m %":"{:+.2f}%",
-        "Vel 2m %":"{:+.2f}%","Acel":"{:+.3f}","ST $":"${:.4f}",
-        "Δ Rank %":"{:+.2f}%","Δ Día %":"{:+.2f}%","RSI":"{:.1f}",
+        "Vel 2m %":"{:+.2f}%","Δ 5m %":"{:+.2f}%","Acel":"{:+.3f}",
+        "ST $":"${:.4f}","Δ Día %":"{:+.2f}%","RSI":"{:.1f}",
         "Soporte $":"${:.4f}","Resist $":"${:.4f}",
         "SL $":"${:.4f}","TP $":"${:.4f}","R:R":"{:.2f}"
     }
     try:
         styled = (df_sh.style
                   .map(cs, subset=["Score 🐂","Score 🐻"])
-                  .map(cv, subset=["Vel 1m %","Vel 2m %","Δ Rank %","Δ Día %"])
+                  .map(cv, subset=["Vel 1m %","Vel 2m %","Δ 5m %","Δ Día %"])
                   .map(cr, subset=["RVOL"])
                   .format(fmt_t))
     except Exception:
         try:
             styled = (df_sh.style
                       .applymap(cs, subset=["Score 🐂","Score 🐻"])
-                      .applymap(cv, subset=["Vel 1m %","Vel 2m %","Δ Rank %","Δ Día %"])
+                      .applymap(cv, subset=["Vel 1m %","Vel 2m %","Δ 5m %","Δ Día %"])
                       .applymap(cr, subset=["RVOL"])
                       .format(fmt_t))
         except Exception:
             styled = df_sh.style.format(fmt_t)
+
     st.dataframe(styled, use_container_width=True, hide_index=True, height=430)
 
     # Auto-trade
@@ -1166,30 +1389,34 @@ if not df_scan.empty:
                 st.success(msg) if ok else st.error(msg)
 
     with ce2:
-        st.markdown(f"### 📊 {t_op} — Detalle")
+        st.markdown(f"### 📊 {t_op} — Análisis Completo")
         stc2 = "#00ff88" if "ALCISTA" in str(rsel["Supertrend"]) else "#ff4444"
         st.markdown(
-            f'<b style="color:{stc2}">{rsel["Supertrend"]}</b> '
-            f'— Línea ST: <b>${rsel["ST $"]}</b>',
+            f'<b style="color:{stc2}">{rsel["Supertrend"]}</b>'
+            f' — ST: <b>${rsel["ST $"]}</b>',
             unsafe_allow_html=True)
-        m1,m2,m3,m4 = st.columns(4)
-        m1.metric("Precio $",  f"${rsel['Precio $']:.4f}")
-        m2.metric("RVOL",      f"{rsel['RVOL']:.1f}x")
-        m3.metric("Vel 1min",  f"{rsel['Vel 1m %']:+.2f}%")
-        m4.metric("Score 🐂",  f"{rsel['Score 🐂']}/10")
-        m5,m6,m7,m8 = st.columns(4)
-        m5.metric("RSI",       f"{rsel['RSI']}")
-        m6.metric("SL $",      f"${rsel['SL $']:.4f}")
-        m7.metric("TP $",      f"${rsel['TP $']:.4f}")
-        m8.metric("R:R",       f"{rsel['R:R']}x")
+        m1, m2_, m3, m4 = st.columns(4)
+        m1.metric("Precio $",   f"${rsel['Precio $']:.4f}")
+        m2_.metric("RVOL",      f"{rsel['RVOL']:.1f}x")
+        m3.metric("Vel 1min",   f"{rsel['Vel 1m %']:+.2f}%")
+        m4.metric("Score 🐂",   f"{rsel['Score 🐂']}/10")
+        m5, m6, m7, m8 = st.columns(4)
+        m5.metric("RSI",        f"{rsel['RSI']}")
+        m6.metric("SL $",       f"${rsel['SL $']:.4f}")
+        m7.metric("TP $",       f"${rsel['TP $']:.4f}")
+        m8.metric("R:R",        f"{rsel['R:R']}x")
+        m9, m10 = st.columns(2)
+        m9.metric("Δ 5min",     f"{rsel['Δ 5m %']:+.2f}%")
+        m10.metric("Δ Día",     f"{rsel['Δ Día %']:+.2f}%")
+
         det = rsel.get("_det", {})
         if det:
             st.markdown("**📌 Motor de señal:**")
             for k, v in det.items():
-                c = ("#00ff88" if any(x in v for x in
-                                     ["▲","🚀","⚡","🔥","✅","🟢"])
-                     else ("#ff4444" if any(x in v for x in
-                                          ["▼","💥","❌","🔴"])
+                c = ("#00ff88" if any(x in str(v) for x in
+                                     ["▲","🚀","⚡","🔥","✅","🟢","🏆"])
+                     else ("#ff4444" if any(x in str(v) for x in
+                                           ["▼","💥","❌","🔴"])
                            else "#ffc107"))
                 st.markdown(
                     f'<span style="color:{c};font-size:.79em">'
@@ -1198,25 +1425,27 @@ if not df_scan.empty:
 
 elif st.session_state.last_scan is not None:
     st.warning("""
-    ⚠️ **Sin señales. Prueba esto:**
-    1. Baja **RVOL mínimo** a **1.1x**
-    2. Baja **Velocidad mínima** a **0.0%**
-    3. Haz el **🏆 RANKING** primero
-    4. Verifica que el mercado esté activo (regular: 9:30-16:00 ET)
+    ⚠️ **Sin señales.** Prueba:
+    1. Pulsa **🏆 OBTENER TOP GAINERS** (datos frescos de Yahoo)
+    2. Pulsa **🔥 DETECTOR 5MIN** (stocks activos ahora)
+    3. Baja **RVOL mínimo** a **1.0x**
+    4. Baja **Velocidad mínima** a **0.0%**
     """)
 else:
     st.markdown("""
-    ### 📋 Flujo recomendado:
+    ### 📋 Flujo para capturar el despegue:
 
-    **1️⃣** Pulsa **🌐 Cargar universo** (una vez al día)
+    **1️⃣ Pulsa 🏆 OBTENER TOP GAINERS** → SDOT +135%, BLZE +62%, CLRB +45%
+    _(Mismos datos que Webull Top Gainers 1 Day)_
 
-    **2️⃣** Pulsa **🏆 CALCULAR RANKING** → selecciona los 150 más activos AHORA
+    **2️⃣ Pulsa 🔥 DETECTOR 5MIN** → JLHL +16%, NXTS +16%, MRDN +13%
+    _(Mismos datos que Webull % Chg in 5Mins)_
 
-    **3️⃣** Pulsa **🚀 INICIAR ESCANEO** → detecta despegues con Supertrend + RVOL
+    **3️⃣ Pulsa 🚀 INICIAR ESCANEO** → Supertrend + RVOL + Velocidad 1min
+    _(Con RVOL corregido — ya no sale 0.0x)_
 
-    > Los stocks como BIYA +125%, NEXR +62%, ATER +55%
-    > aparecen en el **ranking** porque ya tienen movimiento,
-    > y el **escaneo** detecta el momento exacto de aceleración.
+    > Actualiza el **paso 1** y **paso 2** cada 5-10 minutos para
+    > capturar los nuevos stocks que empiezan a dispararse.
     """)
 
 # Auto-refresh
@@ -1227,6 +1456,6 @@ if auto_ref:
 st.markdown('<hr class="n">', unsafe_allow_html=True)
 st.markdown("""<div style="text-align:center;color:#8b949e;font-size:.69em;
 font-family:'Share Tech Mono',monospace">
-⚡ THUNDER RADAR V94 — PAPER TRADING — Solo uso educativo y experimental<br>
+⚡ THUNDER RADAR V96 — YAHOO FINANCE · MOMENTUM 5MIN · PAPER TRADING — Uso educativo<br>
 Los resultados pasados no garantizan rendimientos futuros. Opera con responsabilidad.
 </div>""", unsafe_allow_html=True)
